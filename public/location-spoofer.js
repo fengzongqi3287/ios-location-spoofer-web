@@ -788,7 +788,7 @@
     }
     $httpClient.get({ url: url, timeout: 5 }, function (err, resp, data) {
       if (err || !data || (resp && resp.status >= 400)) {
-        callback(null);
+        callback(null, err ? "network error" : (resp && resp.status >= 400 ? "HTTP " + resp.status : "empty response"));
         return;
       }
       try {
@@ -864,8 +864,14 @@
       }
     }
 
+    if (config.debug) console.log("[Location Spoofer] Response script started");
     if (config.configUrl) {
-      fetchRemoteConfig(config.configUrl, function (remoteData) {
+      fetchRemoteConfig(config.configUrl, function (remoteData, reason) {
+        if (!remoteData || !Number.isFinite(remoteData.latitude) || Math.abs(remoteData.latitude) > 90 || !Number.isFinite(remoteData.longitude) || Math.abs(remoteData.longitude) > 180) {
+          if (config.debug) console.log("[Location Spoofer] Config failed: " + (reason || "invalid or missing configuration"));
+          passThrough();
+          return;
+        }
         if (remoteData) {
           if (remoteData.latitude != null) config.latitude = Number(remoteData.latitude);
           if (remoteData.longitude != null) config.longitude = Number(remoteData.longitude);
