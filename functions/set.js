@@ -1,12 +1,18 @@
 /**
  * iOS Location Spoofer Web
- * 
- * Copyright (c) 2026 akudamatata (https://github.com/akudamatata/iOS-Location-Spoofer-Web)
+ * Copyright (c) 2026 akudamatata
+ * https://github.com/akudamatata/iOS-Location-Spoofer-Web
  * Licensed under CC BY-NC-SA 4.0
- * ⚠️【特别声明】：本项目完全免费开源，严禁以任何形式进行二次售卖、转售、商业收费代搭建！
+ * 修改：校验坐标，并在存储未绑定或写入失败时返回错误。
  */
 
-import { DEFAULT_LOC, authOk, jsonResponse, errorResponse, corsHeaders } from './_utils.js';
+import {
+  DEFAULT_LOC,
+  authOk,
+  jsonResponse,
+  errorResponse,
+  corsHeaders
+} from './_utils.js';
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -15,28 +21,49 @@ export async function onRequestPost(context) {
     return errorResponse('unauthorized', 401);
   }
 
-  try {
-    const data = await request.json();
-    let current = DEFAULT_LOC;
+  if (!env.SPOOFER_DATA) {
+    return errorResponse('missing SPOOFER_DATA binding', 503);
+  }
 
-    if (env.SPOOFER_DATA) {
-      current = await env.SPOOFER_DATA.get('loc', { type: 'json' }) || DEFAULT_LOC;
+  let data;
+  try {
+    data = await request.json();
+  } catch {
+    return errorResponse('bad json', 400);
+  }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return errorResponse('expected a JSON object', 400);
+  }
+
+  for (const [key, limit] of [['latitude', 90], ['longitude', 180]]) {
+    if (key in data &&
+        (!Number.isFinite(data[key]) || Math.abs(data[key]) > limit)) {
+      return errorResponse('invalid ' + key, 400);
     }
+  }
+
+  try {
+    const current =
+      await env.SPOOFER_DATA.get('loc', { type: 'json' }) || DEFAULT_LOC;
 
     const updated = { ...current };
-    if (typeof data.latitude           === 'number') updated.latitude           = data.latitude;
-    if (typeof data.longitude          === 'number') updated.longitude          = data.longitude;
-    if (typeof data.altitude           === 'number') updated.altitude           = data.altitude;
-    if (typeof data.horizontalAccuracy === 'number') updated.horizontalAccuracy = data.horizontalAccuracy;
-    if (typeof data.verticalAccuracy   === 'number') updated.verticalAccuracy   = data.verticalAccuracy;
-
-    if (env.SPOOFER_DATA) {
-      await env.SPOOFER_DATA.put('loc', JSON.stringify(updated));
+    for (const key of [
+      'latitude',
+      'longitude',
+      'altitude',
+      'horizontalAccuracy',
+      'verticalAccuracy'
+    ]) {
+      if (typeof data[key] === 'number') {
+        updated[key] = data[key];
+      }
     }
 
+    await env.SPOOFER_DATA.put('loc', JSON.stringify(updated));
     return jsonResponse(updated);
-  } catch (err) {
-    return errorResponse('bad json');
+  } catch {
+    return errorResponse('location storage unavailable', 503);
   }
 }
 
